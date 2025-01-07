@@ -13,7 +13,7 @@ if [[ $# -eq 1 ]]; then
     USER_ID="$1"
     OTP_SECRET="$(head -c 16 /dev/urandom | xxd -c 256 -ps)"
     OTP_SECRET_BASE32="$(echo 0x"${OTP_SECRET}" | xxd -r -c 256 | base32)"
-    OTP_SECRET_QR="otpauth://totp/$USER_ID?secret=$OTP_SECRET_BASE32&issuer=Cr4ft CA&algorithm=SHA1&digits=6&period=30"
+    OTP_SECRET_QR="otpauth://totp/$USER_ID?secret=$OTP_SECRET_BASE32&issuer=COMPANY&algorithm=SHA1&digits=6&period=30"
 
     if [[ ! -e "${SECRETS_DIR}"/users.oath ]] || ! grep -qP "(?<!\S)${USER_ID}(?!\S)" "${SECRETS_DIR}"/users.oath; then
         echo "HOTP/T30 $USER_ID - $OTP_SECRET" >> "${SECRETS_DIR}"/users.oath
