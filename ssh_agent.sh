@@ -52,8 +52,10 @@ load_keys() {
 
             if [[ -z "${pass-}" ]]; then
                 echo "Failed to get passphrase for $key"
-                echo "Let's add it to keyring:"
-                secret-tool store --label="id_ed25519" unique ssh-store:"${key}" 
+                if [[ $- == *i* ]]; then
+                    echo "Let's add it to keyring:"
+                    secret-tool store --label="$(basename "$key")" unique ssh-store:"${key}" 
+                fi
             fi
 
             ssh_add "$key" "$pass" && echo "Loaded: $key" || echo "Failed to load: $key"
