@@ -27,12 +27,24 @@ ssh_add() {
     local key="$1"
     local pass="$2"
 
-expect << EOF > /dev/null
+    if ! expect << EOF
 spawn ssh-add $key
 expect "Enter passphrase for $key"
 send -- "$pass\r"
-expect eof
+expect {
+    "Bad passphrase" {
+        exit 1
+    }
+    "Identity added" {
+        exit 0
+    }
+    eof
+}
 EOF
+    then
+        return 1
+    fi
+    return 0
 }
 
 # Main key loading logic
@@ -48,19 +60,20 @@ load_keys() {
 
     for key in "${keys[@]}"; do
         if ! ssh-keygen -y -P "" -f "$key" &> /dev/null; then
-            pass=$(secret-tool lookup unique ssh-store:"${key}") || true
-
-            if [[ -z "${pass-}" ]]; then
+            if pass=$(secret-tool lookup unique ssh-store:"${key}"); then
+                ssh_add "$key" "$pass" &> /dev/null && echo "Loaded: $key" || echo "Failed to load: $key"
+            else
                 echo "Failed to get passphrase for $key"
-                if [[ $- == *i* ]]; then
+                if [[ -t 0 ]]; then
                     echo "Let's add it to keyring:"
                     secret-tool store --label="$(basename "$key")" unique ssh-store:"${key}" 
+                    pass=$(secret-tool lookup unique ssh-store:"${key}")
+                    ssh_add "$key" "$pass" &> /dev/null && echo "Loaded: $key" || echo "Failed to load: $key"
                 fi
             fi
 
-            ssh_add "$key" "$pass" && echo "Loaded: $key" || echo "Failed to load: $key"
         else
-            ssh-add "$key" >/dev/null 2>&1 && echo "Loaded: $key" || echo "Failed to load: $key"
+            ssh-add "$key" &> /dev/null && echo "Loaded: $key" || echo "Failed to load: $key"
         fi
     done
 }
