@@ -10,7 +10,7 @@ set -Eeuo pipefail
 export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 
 # Run script using Systemd
-SYSTEMD_USAGE=true
+SYSTEMD_USAGE=false
 
 # Logging parameters
 LOG_TO_STDOUT=true    # simple stdout output
