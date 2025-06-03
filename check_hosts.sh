@@ -47,6 +47,7 @@ restore_cmd() { echo "Example restore command for ${1-}"; }
 # ======================================================
 
 # Basic variables
+SCRIPT_PID=$$
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd -P)
 SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
 SCRIPT_LOG="${SCRIPT_DIR}/${SCRIPT_NAME%.*}.log"
@@ -57,16 +58,20 @@ SYSTEMD_SERVICE="${SCRIPT_NAME%.*}.service"
 
 # Cleanup when traps are triggered
 cleanup() {
-    trap - SIGINT SIGTERM ERR EXIT
+    trap - SIGINT SIGTERM SIGHUP SIGQUIT ERR EXIT
 
-    [[ -n "${fd_lock:-}" ]] && exec {fd_lock}>&-
+    [[ -n "${fd_lock-}" ]] && exec {fd_lock}>&-
 
-    if [[ -f "$SCRIPT_LOCK" && $(< "$SCRIPT_LOCK") == "$$" ]]; then
+    if [[ -f "$SCRIPT_LOCK" && $(< "$SCRIPT_LOCK") -eq $SCRIPT_PID ]]; then
         rm -f "$SCRIPT_LOCK"
+    fi
+    
+    if [[ -n "${monitor_pids-}" ]]; then
+        kill -9 "${monitor_pids[@]}" 2> /dev/null || true
     fi
 }
 
-trap cleanup SIGINT SIGTERM ERR EXIT
+trap cleanup SIGINT SIGTERM SIGHUP SIGQUIT ERR EXIT
 
 
 # Preventing script instance from running again
@@ -77,7 +82,7 @@ if ! flock -n "$fd_lock"; then
     exit 1
 fi
 
-echo "$$" > "$SCRIPT_LOCK"
+echo "$SCRIPT_PID" > "$SCRIPT_LOCK"
 
 
 # Output logging
@@ -187,9 +192,11 @@ echo "Availability monitoring started for the following hosts:"
 echo "${CHECK_HOSTS[@]}"
 
 # Starting monitoring for each host in separate process
+declare -a monitor_pids=()
+
 for host in "${CHECK_HOSTS[@]}"; do
     monitor_host "$host" &
-    trap 'kill "$!"' SIGINT SIGTERM ERR EXIT
+    monitor_pids+=("$!")
 done
 
 # Waiting for all background processes to complete (effectively infinite)
