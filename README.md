@@ -3,7 +3,8 @@ Bash scripts
 
 <details>
 <summary>check_hosts.sh</summary>
-# Bash: Writing a Universal Script to Check Host Availability
+
+Bash: Writing a Universal Script to Check Host Availability
 
 ## Script `check_hosts.sh`
 

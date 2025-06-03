@@ -10,7 +10,7 @@ set -Eeuo pipefail
 export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 
 # Run script using Systemd
-SYSTEMD_USAGE=false
+SYSTEMD_USAGE=true
 
 # Logging parameters
 LOG_TO_STDOUT=true    # simple stdout output
@@ -32,7 +32,14 @@ CHECK_UTILS=("ping" "mtr") # utilities to use (checks their availability)
 # Check command
 check_cmd() { timeout 6 ping -c 1 -W 5 "${1-}" &> /dev/null; }
 # Command to run after $CHECK_THRESHOLD failed attempts
-fail_cmd() { mtr --report-wide --show-ips "${1-}"; }
+fail_cmd() { 
+    fail_cmd_result=$(mtr --report-wide --show-ips "${1-}")
+
+    echo "[${1-}]: Fail command output:"
+    echo "----------------------------------"
+    echo "$fail_cmd_result"
+    echo "----------------------------------"
+}
 # Command to run after availability is restored
 restore_cmd() { echo "Example restore command for ${1-}"; }
 
@@ -146,42 +153,31 @@ monitor_host() {
                 echo "[$host]: Availability restored"
                 echo "[$host]: Running restore command..."
 
-                restore_cmd_result=$(restore_cmd "$host" || true)  # running restore command
+                restore_cmd "$host" || true
 
-                echo "[$host]: Restore command output:"
-                echo "----------------------------------"
-                echo "$restore_cmd_result"
-                echo "----------------------------------"
-
-                is_failed=0     # reset unavailable flag
-                check_count=0   # reset counter
+                is_failed=0  # reset unavailable flag
+                check_count=0  # reset counter
                 
             else
                 check_count=0   # host is available, reset counter
             fi
         else  # actions when unavailable
-            ((check_count++)) || true  # increment counter
-            # check_count=$((check_count+1))
+            ((++check_count))  # increment counter
 
             echo "[$host]: Failed availability check ($check_count/$CHECK_THRESHOLD)"
             
             if [[ "$check_count" -ge "$CHECK_THRESHOLD" && "$is_failed" -eq 0 ]]; then  # threshold actions
                 echo "[$host]: Running fail command..."
-
-                fail_cmd_result=$(fail_cmd "$host" 2>&1 || true)  # running fail command
-
-                echo "[$host]: Fail command output:"
-                echo "----------------------------------"
-                echo "$fail_cmd_result"
-                echo "----------------------------------"
-
-                is_failed=1     # set unavailable flag
+                
+                fail_cmd "$host" || true  # running fail command
+                
+                is_failed=1  # set unavailable flag
 
                 sleep $CHECK_INTERVAL  # delay before next check
             fi
         fi
         
-        sleep $CHECK_INTERVAL   # wait before next loop iteration
+        sleep $CHECK_INTERVAL  # wait before next loop iteration
     done
 }
 
