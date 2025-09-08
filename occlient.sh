@@ -27,15 +27,15 @@ LOG_TO_SYSLOG=0       # log to syslog (tag=<script_name>)
 VPN_IFACE="tun0"
 VPN_SSL_FLAG=1
 VPN_ADDRESS="vpn.example.com"
-VPN_PORT="44444"
-VPN_CERT_FILE="/path/to/exampleuser.p12"
-VPN_CERT_PASS="base64password"
+VPN_PORT="39852"
+VPN_CERT_FILE="/path/to/certfile.p12"
+VPN_CERT_PASS="bas64password"
 VPN_BIN=$(command -v openconnect)
 
 # Connection check parameters
 CHECK_INTERVAL=5       # delay between checks
 CHECK_THRESHOLD=3      # number of failed attempts
-CHECK_HOST="10.7.7.1"  # host to check
+CHECK_HOST="10.1.1.1"  # host to check
 CHECK_UTILS=("$VPN_BIN" "ping" "timeout") # utilities to use (checks their availability)
 
 # VPN connection command
@@ -66,7 +66,6 @@ connect_cmd(){
     return 1
 }
 
-
 connect_post_up_cmd() {
     echo "Example connect_post_up_cmd"
 }
@@ -74,7 +73,6 @@ connect_post_up_cmd() {
 connect_post_down_cmd() {
     echo "Example connect_post_down_cmd"
 }
-
 
 check_cmd() {
     local host="${1-}"
@@ -93,13 +91,12 @@ reconnect_cmd() {
 
     echo "Reconnecting to VPN..."
     connect_cmd || { echo "Failed to reconnect to VPN"; return 1; }
+    VPN_PID=$!
 
     connect_post_up_cmd
-    VPN_PID=$!
 
     echo "VPN reconnected with new PID: $VPN_PID"
 }
-
 
 # Command to run after availability is restored
 restore_cmd() {
@@ -118,7 +115,6 @@ SCRIPT_LOG_PREFIX='[%Y-%m-%d %H:%M:%S.%3N]'
 SCRIPT_LOCK="${SCRIPT_DIR}/${SCRIPT_NAME%.*}.lock"
 SYSTEMD_SERVICE="${SCRIPT_NAME%.*}.service"
 
-
 # Cleanup when traps are triggered
 cleanup() {
     trap - SIGINT SIGTERM SIGHUP SIGQUIT ERR EXIT
@@ -130,26 +126,26 @@ cleanup() {
     fi
 
     connect_post_down_cmd || true
-
-    echo "Terminating child processes..."
-    { pkill -TERM -P "$$" &> /dev/null && exit 0; } || true
-    sleep 5
-    pkill -9 -P "$$" &> /dev/null || true
 }
 
-trap cleanup SIGINT SIGTERM SIGHUP SIGQUIT ERR EXIT
+script_down() {
+    # echo "Terminating child processes..."
+    pkill -SIGTERM -P "$SCRIPT_PID" &> /dev/null || true
 
+    wait
 
-# Preventing script instance from running again
-exec {fd_lock}>> "${SCRIPT_LOCK}"
+    for _ in {1..5}; do
+        if ! pgrep -P "$SCRIPT_PID" &>/dev/null; then
+            # echo "Script stopped"
+            return 0
+        fi
+        sleep 1
+    done
 
-if ! flock -n "$fd_lock"; then
-    echo "Another script instance is already running, exiting..."
-    exit 1
-fi
-
-echo "$SCRIPT_PID" > "$SCRIPT_LOCK"
-
+    # echo "Script did not stop gracefully, forcing..."
+    pkill -SIGKILL -P "$SCRIPT_PID" &> /dev/null || true
+    return 1
+}
 
 # Output logging
 log_pipe() {
@@ -168,24 +164,13 @@ log_pipe() {
     done
 }
 
-exec > >(log_pipe) 2>&1
-
-
-# Checking for required utilities
-for util in "${CHECK_UTILS[@]}"; do
-    if ! command -v "$util" &> /dev/null; then
-        echo "Error: utility $util is not installed"
-        exit 1
-    fi
-done
-
-
-# Configuring script to run with Systemd
-if (( "$SYSTEMD_USAGE" )); then
-    # check if script was launched via Systemd
-    if [[ $PPID -ne 1 ]]; then
-      if [[ ! -f /etc/systemd/system/"${SYSTEMD_SERVICE}" ]]; then
-        cat << EOF > /etc/systemd/system/"${SYSTEMD_SERVICE}"
+setup_systemd() {
+    # Configuring script to run with Systemd
+    if (( "$SYSTEMD_USAGE" )); then
+        # check if script was launched via Systemd
+        if [[ $PPID -ne 1 ]]; then
+          if [[ ! -f /etc/systemd/system/"${SYSTEMD_SERVICE}" ]]; then
+            cat << EOF > /etc/systemd/system/"${SYSTEMD_SERVICE}"
 [Unit]
 Description=$SCRIPT_NAME
 After=network-online.target
@@ -194,31 +179,32 @@ Wants=network-online.target
 [Service]
 Restart=on-failure
 RestartSec=5
-ExecStart=$SCRIPT_DIR/$SCRIPT_NAME
+ExecStart=$SCRIPT_DIR/$SCRIPT_NAME start
+ExecStop=$SCRIPT_DIR/$SCRIPT_NAME stop
 
 [Install]
 WantedBy=multi-user.target
 EOF
-        systemctl daemon-reload
-        systemctl enable "$SYSTEMD_SERVICE"
-        systemctl start "$SYSTEMD_SERVICE"
-        echo "To get service status use:"
-        echo "systemctl status $SYSTEMD_SERVICE and journalctl -fu $SYSTEMD_SERVICE"
-        exit 0
-      else
-        systemctl start "$SYSTEMD_SERVICE"
-        echo "To get service status use:"
-        echo "systemctl status $SYSTEMD_SERVICE and journalctl -fu $SYSTEMD_SERVICE"
-        exit 0
-      fi
+            systemctl daemon-reload
+            systemctl enable "$SYSTEMD_SERVICE"
+            systemctl start "$SYSTEMD_SERVICE"
+            echo "To get service status use:"
+            echo "systemctl status $SYSTEMD_SERVICE and journalctl -fu $SYSTEMD_SERVICE"
+            exit 0
+          else
+            systemctl start "$SYSTEMD_SERVICE"
+            echo "To get service status use:"
+            echo "systemctl status $SYSTEMD_SERVICE and journalctl -fu $SYSTEMD_SERVICE"
+            exit 0
+          fi
+        fi
     fi
-fi
-
+}
 
 # Host availability monitoring function
 monitor_host() {
-    local host="${1-}"
-    local pid="${2-}"
+    local host="$CHECK_HOST"
+    local pid="$VPN_PID"
     local check_count=0
     local is_failed=0  # 0 - host available, 1 - host unavailable
 
@@ -260,17 +246,103 @@ monitor_host() {
     done
 }
 
+# Main dcript flow
+main() {
+    # Checking for required utilities
+    for util in "${CHECK_UTILS[@]}"; do
+        if ! command -v "$util" &> /dev/null; then
+            echo "Error: utility $util is not installed"
+            exit 1
+        fi
+    done
+
+    setup_systemd
+
+    if ! connect_cmd; then
+        echo "VPN failed to start, exiting..."
+        exit 1
+    fi
+    
+    connect_post_up_cmd
+    
+    sleep 5
+    
+    monitor_host
+}
+
+start_action() {
+    exec {fd_lock}>> "${SCRIPT_LOCK}"
+
+    if ! flock -n "$fd_lock"; then
+        echo "Another script instance is already running, exiting..."
+        exit 1
+    fi
+
+    echo "$SCRIPT_PID" > "$SCRIPT_LOCK"
+
+    main
+}
+
+stop_action() {
+
+    if [[ ! -f "$SCRIPT_LOCK" ]]; then
+        echo "Script is not running (no lock file found)"
+        return 0
+    fi
+
+    local pid
+    pid=$(< "$SCRIPT_LOCK")
+
+    if ! kill -0 "$pid" &>/dev/null; then
+        echo "Script is not running (stale lock file)"
+        return 0
+    fi
+
+    echo "Stopping script with PID $pid..."
+
+    kill -TERM "$pid"
+
+    for _ in {1..10}; do
+        if ! kill -0 "$pid" &>/dev/null; then
+            echo "Script stopped"
+            return 0
+        fi
+        sleep 1
+    done
+
+    echo "Script did not stop gracefully, forcing..."
+    kill -KILL "$pid"
+}
+
+status_action() {
+    if [[ -f "$SCRIPT_LOCK" ]]; then
+        local pid
+        pid=$(< "$SCRIPT_LOCK")
+        
+        if kill -0 "$pid" &>/dev/null; then
+            echo "Script is running with PID: $pid"
+        else
+            echo "Script is not running (stale lock file)"
+        fi
+    else
+        echo "Script is not running"
+    fi
+}
+
 # ====================
 # Main execution flow
 # ====================
-if ! connect_cmd; then
-    echo "VPN failed to start, exiting..."
-    exit 1
-fi
+trap 'RC=$?; cleanup; script_down; exit $RC' SIGINT SIGHUP SIGTERM SIGQUIT ERR EXIT
 
-connect_post_up_cmd
+# Log all script output
+exec > >(log_pipe) 2>&1
 
-sleep 5
-
-monitor_host "$CHECK_HOST" "$VPN_PID"
+# Argument parsing
+case "${1-}" in
+    start) start_action ;;
+    stop) stop_action ;;
+    restart) stop_action; sleep 1; start_action ;;
+    status) status_action ;;
+    *) echo "Usage: $SCRIPT_NAME {start|stop|restart|status}"; exit 1 ;;
+esac
 

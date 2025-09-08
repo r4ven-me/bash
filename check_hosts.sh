@@ -10,12 +10,12 @@ set -Eeuo pipefail
 export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 
 # Run script using Systemd
-SYSTEMD_USAGE=false
+SYSTEMD_USAGE=0
 
 # Logging parameters
-LOG_TO_STDOUT=true    # simple stdout output
-LOG_TO_FILE=false     # log to file (<script_name>.log)
-LOG_TO_SYSLOG=false   # log to syslog (tag=<script_name>)
+LOG_TO_STDOUT=1    # simple stdout output
+LOG_TO_FILE=0      # log to file (<script_name>.log)
+LOG_TO_SYSLOG=0    # log to syslog (tag=<script_name>)
 
 # Check parameters
 CHECK_INTERVAL=5     # delay between checks
@@ -89,9 +89,16 @@ echo "$SCRIPT_PID" > "$SCRIPT_LOCK"
 log_pipe() {
     while IFS= read -r line; do
         log_line="$(date +"${SCRIPT_LOG_PREFIX}") - $line"
-        if [[ "${LOG_TO_STDOUT}" == "true" ]]; then echo "$log_line"; fi
-        if [[ "${LOG_TO_FILE}" == "true" ]]; then echo "$log_line" >> "$SCRIPT_LOG"; fi
-        if [[ "${LOG_TO_SYSLOG}" == "true" ]]; then logger -t "${SCRIPT_NAME}" -- "$line"; fi
+
+        if (( "$SYSTEMD_USAGE" )); then
+            if (( "$LOG_TO_STDOUT" )); then echo "$line"; fi
+        else
+            if (( "$LOG_TO_STDOUT" )); then echo "$log_line"; fi
+        fi
+
+        if (( "$LOG_TO_FILE" )); then echo "$log_line" >> "$SCRIPT_LOG"; fi
+
+        if (( "$LOG_TO_SYSLOG" )); then logger -t "$SCRIPT_NAME" -- "$line"; fi
     done
 }
 
@@ -108,7 +115,7 @@ done
 
 
 # Configuring script to run with Systemd
-if [[ "$SYSTEMD_USAGE" == "true" ]]; then
+if (( "$SYSTEMD_USAGE" )); then
     # check for root privileges
     if [[ $EUID -ne 0 ]]; then
       echo "Please run as root"
