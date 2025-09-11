@@ -9,14 +9,14 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-# =============================================================
-# ========== BEGINNING OF USER CONFIGURATION SECTION ==========
-
 # Explicit PATH definition
 export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 
+# =============================================================
+# ========== BEGINNING OF USER CONFIGURATION SECTION ==========
+
 # Run script using Systemd
-SYSTEMD_USAGE=0
+SYSTEMD_USAGE=0       # 1 = true, 0 = false
 
 # Logging parameters
 LOG_TO_STDOUT=1       # simple stdout output
@@ -27,15 +27,15 @@ LOG_TO_SYSLOG=0       # log to syslog (tag=<script_name>)
 VPN_IFACE="tun0"
 VPN_SSL_FLAG=1
 VPN_ADDRESS="vpn.example.com"
-VPN_PORT="39852"
-VPN_CERT_FILE="/path/to/certfile.p12"
-VPN_CERT_PASS="bas64password"
+VPN_PORT="443"
+VPN_CERT_FILE="/path/to/cert.p12"
+VPN_CERT_PASS="base64password"      # Use echo "secretpassword" | base64
 VPN_BIN=$(command -v openconnect)
 
 # Connection check parameters
 CHECK_INTERVAL=5       # delay between checks
 CHECK_THRESHOLD=3      # number of failed attempts
-CHECK_HOST="10.1.1.1"  # host to check
+CHECK_HOST="10.10.10.1"  # host to check
 CHECK_UTILS=("$VPN_BIN" "ping" "timeout") # utilities to use (checks their availability)
 
 # VPN connection command
@@ -151,16 +151,22 @@ script_down() {
 log_pipe() {
     while IFS= read -r line; do
         log_line="$(date +"${SCRIPT_LOG_PREFIX}") - $line"
-
-        if (( "$SYSTEMD_USAGE" )); then
-            if (( "$LOG_TO_STDOUT" )); then echo "$line"; fi
-        else
-            if (( "$LOG_TO_STDOUT" )); then echo "$log_line"; fi
+        
+        if (( "$LOG_TO_STDOUT" )); then
+            if (( "$SYSTEMD_USAGE" )); then
+                echo "$line"
+            else
+                echo "$log_line"
+            fi
         fi
 
-        if (( "$LOG_TO_FILE" )); then echo "$log_line" >> "$SCRIPT_LOG"; fi
+        if (( "$LOG_TO_FILE" )); then
+            echo "$log_line" >> "$SCRIPT_LOG"
+        fi
 
-        if (( "$LOG_TO_SYSLOG" )); then logger -t "$SCRIPT_NAME" -- "$line"; fi
+        if (( "$LOG_TO_SYSLOG" )); then
+            logger -t "$SCRIPT_NAME" -- "$line"
+        fi
     done
 }
 
