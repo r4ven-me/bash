@@ -29,7 +29,7 @@ VPN_SSL_FLAG=1
 VPN_ADDRESS="vpn.example.com"
 VPN_PORT="443"
 VPN_CERT_FILE="/path/to/cert.p12"
-VPN_CERT_PASS="base64password"      # Use echo "secretpassword" | base64
+VPN_CERT_PASS="base64password"      # Use: echo "secretpassword" | base64
 VPN_BIN=$(command -v openconnect)
 
 # Connection check parameters
@@ -44,7 +44,6 @@ connect_cmd(){
     echo "Main PID: $$"
     if (( "$VPN_SSL_FLAG" )); then
         echo "${VPN_CERT_PASS}" | base64 -d | "$VPN_BIN" -c "$VPN_CERT_FILE" "${VPN_ADDRESS}:${VPN_PORT}" &
-
     else
         echo -e "$(echo "${VPN_CERT_PASS}" | base64 -d)\nyes" | "$VPN_BIN" -c "$VPN_CERT_FILE" "${VPN_ADDRESS}:${VPN_PORT}" &
     fi
