@@ -16,9 +16,18 @@ trap 'notify-send "Mouse OFF"; exit 0' SIGTERM SIGINT SIGHUP
 
 # Function: move the mouse by 1 pixel back and forth
 move_mouse() {
-    xdotool mousemove_relative --sync 1 1
-    sleep 0.1
-    xdotool mousemove_relative --sync -- -1 -1
+    case "$XDG_SESSION_TYPE" in
+        x11)
+            xdotool mousemove_relative --sync 1 1
+            sleep 0.1
+            xdotool mousemove_relative --sync -- -1 -1
+            ;;
+        wayland)
+            ydotool mousemove -- 1 1
+            sleep 0.1
+            ydotool mousemove -- -1 -1
+            ;;
+    esac
 }
 
 # If the script is already running — kill all instances
