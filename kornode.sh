@@ -21,6 +21,8 @@ FORCE=false
 SKIP_DOCKER=false
 NO_START=false
 readonly TTY=/dev/tty
+readonly SCRIPT_URL=https://raw.githubusercontent.com/r4ven-me/bash/main/kornode.sh
+ORIGINAL_ARGS=("$@")
 
 log() { printf '\n==> %s\n' "$*"; }
 warn() { printf '\nWARNING: %s\n' "$*" >&2; }
@@ -101,6 +103,17 @@ while (($#)); do
   shift
 done
 
+if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
+  command -v sudo >/dev/null 2>&1 || die "Root privileges are required, but sudo is not installed"
+  printf '\nДля установки нужны права root. Введите пароль sudo.\n' >&2
+  if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+    exec sudo -E -- bash "${BASH_SOURCE[0]}" "${ORIGINAL_ARGS[@]}"
+  fi
+  exec sudo -E -- bash -c \
+    'curl -fsSL "$1" | bash -s -- "${@:2}"' \
+    bash "$SCRIPT_URL" "${ORIGINAL_ARGS[@]}"
+fi
+
 if [[ -z "$ROLE" ]]; then
   [[ -r "$TTY" && -w "$TTY" ]] || { usage >&2; die "ROLE is required without an interactive terminal"; }
   cat > "$TTY" <<'EOF'
@@ -118,7 +131,6 @@ EOF
     *) die "Invalid server type: $role_choice" ;;
   esac
 fi
-[[ ${EUID:-$(id -u)} -eq 0 ]] || die "Run this script as root (for example: curl URL | sudo bash)"
 
 prompt_value() {
   local name=$1 prompt=$2 default=${3:-} value
