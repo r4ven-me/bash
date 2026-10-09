@@ -20,6 +20,7 @@ ROLE=""
 FORCE=false
 SKIP_DOCKER=false
 NO_START=false
+readonly TTY=/dev/tty
 
 log() { printf '\n==> %s\n' "$*"; }
 warn() { printf '\nWARNING: %s\n' "$*" >&2; }
@@ -100,19 +101,35 @@ while (($#)); do
   shift
 done
 
-[[ -n "$ROLE" ]] || { usage >&2; exit 2; }
-[[ ${EUID:-$(id -u)} -eq 0 ]] || die "Run this script as root"
+if [[ -z "$ROLE" ]]; then
+  [[ -r "$TTY" && -w "$TTY" ]] || { usage >&2; die "ROLE is required without an interactive terminal"; }
+  cat > "$TTY" <<'EOF'
+
+Выберите тип сервера:
+  1) kornode — standalone vpn-b, certificate-only
+  2) kornode-upstream — kornode vpn-a с upstream через vpn-b
+  3) wireguard-upstream — kornode vpn-a + wg-easy через vpn-b
+EOF
+  read -r -p 'Номер [1-3]: ' role_choice < "$TTY"
+  case "$role_choice" in
+    1) ROLE=kornode ;;
+    2) ROLE=kornode-upstream ;;
+    3) ROLE=wireguard-upstream ;;
+    *) die "Invalid server type: $role_choice" ;;
+  esac
+fi
+[[ ${EUID:-$(id -u)} -eq 0 ]] || die "Run this script as root (for example: curl URL | sudo bash)"
 
 prompt_value() {
   local name=$1 prompt=$2 default=${3:-} value
   value=${!name:-}
   if [[ -z "$value" ]]; then
-    [[ -t 0 ]] || die "$name is required in non-interactive mode"
+    [[ -r "$TTY" && -w "$TTY" ]] || die "$name is required without an interactive terminal"
     if [[ -n "$default" ]]; then
-      read -r -p "$prompt [$default]: " value
+      read -r -p "$prompt [$default]: " value < "$TTY"
       value=${value:-$default}
     else
-      read -r -p "$prompt: " value
+      read -r -p "$prompt: " value < "$TTY"
     fi
   fi
   [[ -n "$value" ]] || die "$name must not be empty"
@@ -124,9 +141,9 @@ prompt_secret() {
   local name=$1 prompt=$2 value
   value=${!name:-}
   if [[ -z "$value" ]]; then
-    [[ -t 0 ]] || die "$name is required in non-interactive mode"
-    read -r -s -p "$prompt: " value
-    printf '\n'
+    [[ -r "$TTY" && -w "$TTY" ]] || die "$name is required without an interactive terminal"
+    read -r -s -p "$prompt: " value < "$TTY"
+    printf '\n' > "$TTY"
   fi
   [[ -n "$value" ]] || die "$name must not be empty"
   printf -v "$name" '%s' "$value"
